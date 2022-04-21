@@ -1,3 +1,4 @@
+from random import sample
 from graphsaint.globals import *
 from graphsaint.pytorch_version.models import GraphSAINT
 from graphsaint.pytorch_version.minibatch import Minibatch
@@ -8,7 +9,8 @@ from graphsaint.pytorch_version.utils import *
 
 import torch
 import time
-
+import warnings
+warnings.filterwarnings("ignore", category=UserWarning)
 
 def evaluate_full_batch(model, minibatch, mode='val'):
     """
@@ -67,31 +69,45 @@ def train(train_phases, model, minibatch, minibatch_eval, model_eval, eval_val_e
     time_train = 0
     dir_saver = '{}/pytorch_models'.format(args_global.dir_log)
     path_saver = '{}/pytorch_models/saved_model_{}.pkl'.format(args_global.dir_log, timestamp)
+    
+    sample_time = 0
+    eval_time = 0
     for ip, phase in enumerate(train_phases):
         printf('START PHASE {:4d}'.format(ip),style='underline')
+        sample_start = time.time()
         minibatch.set_sampler(phase)
         num_batches = minibatch.num_training_batches()
+        sample_end = time.time()
+        sample_time += (sample_end-sample_start)
         for e in range(epoch_ph_start, int(phase['end'])):
             printf('Epoch {:4d}'.format(e),style='bold')
             minibatch.shuffle()
             l_loss_tr, l_f1mic_tr, l_f1mac_tr = [], [], []
             time_train_ep = 0
+            eval_time_ep = 0
             while not minibatch.end():
                 t1 = time.time()
                 loss_train,preds_train,labels_train = model.train_step(*minibatch.one_batch(mode='train'))
-                time_train_ep += time.time() - t1
+                t2 = time.time()
+                time_train_ep += t2 - t1
                 if not minibatch.batch_num % args_global.eval_train_every:
                     f1_mic, f1_mac = calc_f1(to_numpy(labels_train),to_numpy(preds_train),model.sigmoid_loss)
                     l_loss_tr.append(loss_train)
                     l_f1mic_tr.append(f1_mic)
                     l_f1mac_tr.append(f1_mac)
+                t3 = time.time()
+                eval_time_ep += t3 - t2
+            
             if (e+1)%eval_val_every == 0:
+                t4 = time.time()
                 if args_global.cpu_eval:
                     torch.save(model.state_dict(),'tmp.pkl')
                     model_eval.load_state_dict(torch.load('tmp.pkl',map_location=lambda storage, loc: storage))
                 else:
                     model_eval = model
                 loss_val, f1mic_val, f1mac_val = evaluate_full_batch(model_eval, minibatch_eval, mode='val')
+                t5 = time.time()
+                eval_time_ep += t5 - t4
                 printf(' TRAIN (Ep avg): loss = {:.4f}\tmic = {:.4f}\tmac = {:.4f}\ttrain time = {:.4f} sec'\
                         .format(f_mean(l_loss_tr), f_mean(l_f1mic_tr), f_mean(l_f1mac_tr), time_train_ep))
                 printf(' VALIDATION:     loss = {:.4f}\tmic = {:.4f}\tmac = {:.4f}'\
@@ -102,6 +118,7 @@ def train(train_phases, model, minibatch, minibatch_eval, model_eval, eval_val_e
                         os.makedirs(dir_saver)
                     printf('  Saving model ...', style='yellow')
                     torch.save(model.state_dict(), path_saver)
+            eval_time += eval_time_ep
             time_train += time_train_ep
         epoch_ph_start = int(phase['end'])
     printf("Optimization Finished!", style="yellow")
@@ -120,6 +137,8 @@ def train(train_phases, model, minibatch, minibatch_eval, model_eval, eval_val_e
     printf("Full test stats: \n  F1_Micro = {:.4f}\tF1_Macro = {:.4f}"\
             .format(f1mic_test, f1mac_test), style='red')
     printf("Total training time: {:6.2f} sec".format(time_train), style='red')
+    printf("Total sampling time: {:6.2f} sec".format(sample_time), style='red')
+    printf("Total eval time: {:6.2f} sec".format(eval_time), style='red')
 
 
 if __name__ == '__main__':
