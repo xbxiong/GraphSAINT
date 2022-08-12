@@ -81,72 +81,7 @@ def load_data(prefix, normalize=True):
     # -------------------------
     return adj_full, adj_train, feats, class_map, role
 
-def get_index(adj_train, precent):
-    '''
-    获取度的阈值：max_d
-    '''
-    nodes = np.array(list(set(adj_train.nonzero()[0]))) #获取adj_train中的节点序号: nodes
-    nodes_num = nodes.shape[0]
-    K = int(nodes_num * precent)
-    nodes_D = np.sum(adj_train,0).tolist() 
-    nodes_D[0].sort(reverse = True)
-    max_d = nodes_D[0][K]
-    
-    return max_d
 
-def get_nodes(adj_train, max_d):
-    '''
-    获取需要删除的nodes序列
-    '''
-    nodes = np.array(list(set(adj_train.nonzero()[0]))) #获取adj_train中的节点序号: nodes
-    nodes_Degree = np.sum(adj_train,0).tolist() 
-    nodes1 = []
-    for i in nodes:
-        if(nodes_Degree[0][i] >= max_d):
-            nodes1.append(i)
-    return nodes1
-
-def del_rows_from_csr_mtx(csr_mtx, row_indices):
-    """ 从csr稀疏矩阵中，删除某几行
-    思路:
-        1. 在data中删除这些行的元素，在indices中删除这些元素的列标。
-        2. 在indptr中删除行，同时要修正其余行所对应元素的在data和indices中的位置。
-    :param csr_mtx: 原始csr稀疏矩阵
-    :param row_indices: 要删除的行，array of int
-    :return : 一个新的删除过行的csr矩阵
-    """
-
-    indptr = csr_mtx.indptr
-    indices = csr_mtx.indices
-    data = csr_mtx.data
-    m, n = csr_mtx.shape
-
-    # 确认，要删除的元素的在data和indices中的位置
-    target_row_ele_indices = [i for idx in row_indices for i in range(indptr[idx], indptr[idx+1])]
-    # 删除元素和下标
-    new_indices = np.delete(indices, target_row_ele_indices)
-    new_data = np.delete(data, target_row_ele_indices)
-
-    # 获得因为删除元素所造成的元素位置漂移的偏置量
-    off_vec = np.zeros((m+1,), dtype=np.int)
-    for idx in row_indices:
-        off_vec[idx+1:] = off_vec[idx+1:] + (indptr[idx+1] - indptr[idx])
-    # 修正位置
-    new_indptr = indptr - off_vec
-    # 删除掉这些行
-    #new_indptr = np.delete(new_indptr, row_indices)
-
-    return sp.csr_matrix((new_data, new_indices, new_indptr), shape=(m, n))
-
-def get_adj(adj,prec):
-    
-    max_d = get_index(adj,prec)
-    nodes = get_nodes(adj,max_d)
-    new_adj = del_rows_from_csr_mtx(adj,nodes)
-    #nnz1 = new_adj.nnz
-    #print(nnz1)
-
-    return new_adj
 
 def bingge_norm_adjacency(adj):
    adj = adj + sp.eye(adj.shape[0])
@@ -167,20 +102,6 @@ def aug_normalized_adjacency(adj):
    return d_mat_inv_sqrt.dot(adj).dot(d_mat_inv_sqrt).tocoo()
 
 
-def edge_drop(adj_train, percent):
-
-    adj_train = coo_matrix(adj_train)
-    nnz = adj_train.nnz  ##非0元素，即有多少条边
-    perm = np.random.permutation(nnz)  ## 随机排列
-    preserve_nnz = int(nnz*percent)   ## 要保存的边数量
-    perm = perm[:preserve_nnz]  ## 对随机排列的边取出 preserve_nnz 条
-    r_adj = sp.coo_matrix((adj_train.data[perm],   ##构造coo 矩阵
-                               (adj_train.row[perm],
-                                adj_train.col[perm])),
-                              shape=adj_train.shape)  ## 构建稀疏化后的矩阵
-    r_adj = aug_normalized_adjacency(r_adj)
-    r_adj = r_adj.tocsr() #.astype(np.bool) 需不需要注意这个数据格式
-    return r_adj   
 
 
 def process_graph_data(adj_full, adj_train, feats, class_map, role):
